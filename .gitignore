@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+
+# Local test/output artifacts from disk cleanup runs.
+CodexJanitor/
+**/CodexJanitor/
+disk-cleanup-log-*.md
+cleanup_plan.md
+manifest.md
+cleanup_manifest.json
+cleanup.py
