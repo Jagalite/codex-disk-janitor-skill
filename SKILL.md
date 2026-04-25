@@ -15,6 +15,10 @@ The default mode is read-only. Never delete, move, compress, truncate, rewrite, 
 
 Do not treat broad cleanup requests as permission to write. If the user asks to "clean up" or "free space," start with read-only inspection and cleanup planning.
 
+Helper scripts are safety aids, not authorization.
+
+A successful scan or validation result never grants permission to delete, move, compress, stage, trash, or modify anything. The agent must still present the exact cleanup draft, run or present the dry-run, and receive explicit final approval for the exact item IDs and paths.
+
 ## Default Workflow
 
 1. Confirm scope.
@@ -74,6 +78,8 @@ Example read-only scan:
 python scripts/scan_metadata.py --root "<approved-path>" --max-files 200000 --max-depth 6 --json
 ```
 
+If the user explicitly approves a broad root, pass the narrowest matching override flag such as `--allow-home`, `--allow-drive-root`, `--allow-mounted-root`, `--allow-cloud-sync-root`, `--allow-network-root`, `--allow-workspace-root`, or `--allow-broad-root`. If the approved root is a symlink, junction, or reparse point, use `--allow-symlink-root` only after explaining the resolved target.
+
 If you use shell commands instead, keep them read-only, scoped to exact approved paths, and avoid broad recursive path dumps. Do not improvise destructive cleanup commands during scanning.
 
 By default, the scanner skips dotfiles and dotdirectories such as `.git`. Use `--include-hidden` only when the user explicitly approves hidden file inspection.
@@ -81,6 +87,7 @@ By default, the scanner skips dotfiles and dotdirectories such as `.git`. Use `-
 Safe scan output should preserve:
 
 - Requested root.
+- Resolved root.
 - Whether the scan is complete or partial.
 - Partial reasons.
 - Files and directories scanned.
@@ -175,7 +182,7 @@ If anything differs from the approved cleanup draft, stop and ask. If deletion p
 
 Writing an audit log is itself a write action. If writing a local log was not explicitly approved, present the audit log in chat. If writing locally, use a user-approved destination.
 
-When a cleanup plan is represented as JSON, prefer `scripts/validate_cleanup_plan.py` before dry-run or execution. It performs no writes. It rejects empty paths, roots and broad parent paths, traversal outside approved scope, symlinks unless explicitly allowed, mount points unless explicitly allowed, missing paths, type changes, and unexpected expansion. It estimates current size and outputs a dry-run summary. Validation is not permission to execute; it is only a preflight check.
+When a cleanup plan is represented as JSON, prefer `scripts/validate_cleanup_plan.py` before dry-run or execution. It performs no writes. It rejects empty paths, roots and broad parent paths, traversal outside approved scope, symlinks unless explicitly allowed, mount points unless explicitly allowed, missing paths, type changes, missing approval metadata, incomplete compression safeguards, and unexpected expansion. It estimates current size and outputs a dry-run summary. Validation is not permission to execute; it is only a preflight check.
 
 ## Output Style
 

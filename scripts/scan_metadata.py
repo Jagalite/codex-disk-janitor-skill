@@ -20,6 +20,34 @@ from pathlib import Path
 from typing import Any
 
 
+FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+CLOUD_SYNC_ROOT_NAMES = {
+    "box",
+    "dropbox",
+    "google drive",
+    "icloud drive",
+    "onedrive",
+    "syncthing",
+}
+POSIX_SYSTEM_ROOTS = {
+    "/bin",
+    "/boot",
+    "/dev",
+    "/etc",
+    "/lib",
+    "/lib64",
+    "/opt",
+    "/private",
+    "/proc",
+    "/root",
+    "/sbin",
+    "/sys",
+    "/system",
+    "/usr",
+    "/var",
+}
+
+
 @dataclass
 class Candidate:
     path: str
@@ -89,50 +117,159 @@ def add_largest(items: list[Any], item: Any, limit: int, key: str = "size_bytes"
     del items[limit:]
 
 
+def is_root_like(path: Path) -> bool:
+    anchor = Path(path.anchor).resolve(strict=False) if path.anchor else None
+    return anchor is not None and path == anchor
+
+
+def is_home_root(path: Path) -> bool:
+    try:
+        return path == Path.home().resolve(strict=False)
+    except RuntimeError:
+        return False
+
+
+def is_workspace_root(path: Path) -> bool:
+    return path == Path.cwd().resolve(strict=False)
+
+
+def system_roots() -> set[Path]:
+    roots = {Path(value).expanduser().resolve(strict=False) for value in POSIX_SYSTEM_ROOTS}
+    for variable in ("SystemRoot", "windir", "ProgramFiles", "ProgramFiles(x86)", "ProgramData"):
+        value = os.environ.get(variable)
+        if value:
+            roots.add(Path(value).expanduser().resolve(strict=False))
+    return roots
+
+
+def is_cloud_sync_root(path: Path) -> bool:
+    name = path.name.lower()
+    return name in CLOUD_SYNC_ROOT_NAMES or name.startswith("onedrive")
+
+
+def is_network_root(path: Path) -> bool:
+    return path.anchor.startswith("\\\\")
+
+
+def is_mount_point(path: Path) -> bool:
+    try:
+        return path.is_mount()
+    except OSError:
+        return False
+
+
+def is_windows_reparse_point(info: os.stat_result) -> bool:
+    return bool(getattr(info, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def broad_root_reasons(path: Path, args: argparse.Namespace) -> list[str]:
+    reasons: list[str] = []
+    if args.allow_broad_root:
+        return reasons
+    if is_root_like(path) and not args.allow_drive_root:
+        reasons.append(f"drive or filesystem root requires --allow-drive-root: {path}")
+    if is_home_root(path) and not args.allow_home:
+        reasons.append(f"home/profile root requires --allow-home: {path}")
+    if is_workspace_root(path) and not args.allow_workspace_root:
+        reasons.append(f"workspace root requires --allow-workspace-root: {path}")
+    if path in system_roots():
+        reasons.append(f"system root requires --allow-broad-root: {path}")
+    if is_mount_point(path) and not args.allow_mounted_root:
+        reasons.append(f"mounted volume root requires --allow-mounted-root: {path}")
+    if is_cloud_sync_root(path) and not args.allow_cloud_sync_root:
+        reasons.append(f"cloud-sync root requires --allow-cloud-sync-root: {path}")
+    if is_network_root(path) and not args.allow_network_root:
+        reasons.append(f"network root requires --allow-network-root: {path}")
+    return reasons
+
+
 def scan_root(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     started_at = time.time()
-    root = root.expanduser().resolve()
+    requested_root = str(root)
+    raw_root = root.expanduser()
     partial_reasons: list[str] = []
     warnings: list[str] = []
     skipped_links: list[str] = []
     skipped_mounts: list[str] = []
-    skipped_hidden: list[str] = []
+    skipped_reparse_points: list[str] = []
+    hidden_skipped_count = 0
+    hidden_skipped_directories_count = 0
+    hidden_skipped_examples: list[str] = []
     access_errors: list[str] = []
     largest_files: list[Candidate] = []
     largest_directories: list[DirectorySummary] = []
     extension_counts: dict[str, dict[str, int]] = defaultdict(lambda: {"count": 0, "size_bytes": 0})
     category_counts: dict[str, dict[str, int]] = defaultdict(lambda: {"count": 0, "size_bytes": 0})
+    directory_category_counts: dict[str, dict[str, int]] = defaultdict(lambda: {"count": 0, "metadata_size_bytes": 0})
     directory_sizes: dict[str, int] = defaultdict(int)
     directory_counts: dict[str, int] = defaultdict(int)
     scanned_files = 0
     scanned_directories = 0
     root_device: int | None = None
+    root = raw_root
 
     def note_partial(reason: str) -> None:
         if reason not in partial_reasons:
             partial_reasons.append(reason)
 
     try:
-        root_stat = root.lstat()
-        root_device = root_stat.st_dev
+        root_lstat = raw_root.lstat()
     except OSError as error:
         return {
-            "root": str(root),
+            "requested_root": requested_root,
+            "resolved_root": None,
+            "root": str(raw_root),
             "partial": True,
             "partial_reasons": [f"Could not stat root: {error}"],
-            "warnings": [f"Could not stat root: {root}"],
+            "warnings": [f"Could not stat root: {raw_root}"],
         }
 
-    if not root.exists():
+    if stat.S_ISLNK(root_lstat.st_mode) and not args.allow_symlink_root:
         return {
+            "requested_root": requested_root,
+            "resolved_root": None,
+            "root": str(raw_root),
+            "partial": True,
+            "partial_reasons": ["Root is a symlink and requires --allow-symlink-root"],
+            "warnings": [f"Root is a symlink: {raw_root}"],
+        }
+
+    if is_windows_reparse_point(root_lstat) and not args.allow_symlink_root:
+        return {
+            "requested_root": requested_root,
+            "resolved_root": None,
+            "root": str(raw_root),
+            "partial": True,
+            "partial_reasons": ["Root is a Windows reparse point and requires --allow-symlink-root"],
+            "warnings": [f"Root is a Windows reparse point: {raw_root}"],
+        }
+
+    try:
+        root = raw_root.resolve(strict=True)
+        root_device = root.lstat().st_dev
+    except OSError as error:
+        return {
+            "requested_root": requested_root,
+            "resolved_root": None,
+            "root": str(raw_root),
+            "partial": True,
+            "partial_reasons": [f"Could not resolve root: {error}"],
+            "warnings": [f"Could not resolve root: {raw_root}"],
+        }
+
+    broad_reasons = broad_root_reasons(root, args)
+    if broad_reasons:
+        return {
+            "requested_root": requested_root,
+            "resolved_root": str(root),
             "root": str(root),
             "partial": True,
-            "partial_reasons": ["Root does not exist"],
-            "warnings": [f"Root does not exist: {root}"],
+            "partial_reasons": broad_reasons,
+            "warnings": ["Refused broad scan root. Re-run only after explicit user approval with the matching allow flag."],
         }
 
     def visit(path: Path, depth: int) -> None:
-        nonlocal scanned_files, scanned_directories
+        nonlocal hidden_skipped_count, hidden_skipped_directories_count, scanned_files, scanned_directories
         if scanned_files >= args.max_files:
             note_partial(f"Stopped after max file limit: {args.max_files}")
             return
@@ -148,11 +285,20 @@ def scan_root(root: Path, args: argparse.Namespace) -> dict[str, Any]:
 
         mode = info.st_mode
         if path != root and not args.include_hidden and path.name.startswith("."):
-            skipped_hidden.append(str(path))
+            hidden_skipped_count += 1
+            if stat.S_ISDIR(mode):
+                hidden_skipped_directories_count += 1
+            if len(hidden_skipped_examples) < args.top:
+                hidden_skipped_examples.append(str(path))
             return
 
         if stat.S_ISLNK(mode):
             skipped_links.append(str(path))
+            return
+
+        if is_windows_reparse_point(info):
+            skipped_reparse_points.append(str(path))
+            note_partial(f"Skipped Windows reparse point: {path}")
             return
 
         if path != root and root_device is not None and info.st_dev != root_device:
@@ -161,10 +307,10 @@ def scan_root(root: Path, args: argparse.Namespace) -> dict[str, Any]:
             return
 
         category = categorize(path, mode)
-        category_counts[category]["count"] += 1
-        category_counts[category]["size_bytes"] += info.st_size
 
         if stat.S_ISDIR(mode):
+            directory_category_counts[category]["count"] += 1
+            directory_category_counts[category]["metadata_size_bytes"] += info.st_size
             scanned_directories += 1
             if depth >= args.max_depth:
                 note_partial(f"Reached max depth at: {path}")
@@ -201,6 +347,8 @@ def scan_root(root: Path, args: argparse.Namespace) -> dict[str, Any]:
                 category=category,
             )
             add_largest(largest_files, candidate, args.top)
+            category_counts[category]["count"] += 1
+            category_counts[category]["size_bytes"] += info.st_size
             extension = path.suffix.lower() or "[no extension]"
             extension_counts[extension]["count"] += 1
             extension_counts[extension]["size_bytes"] += info.st_size
@@ -218,7 +366,11 @@ def scan_root(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     visit(root, 0)
 
     return {
+        "requested_root": requested_root,
+        "resolved_root": str(root),
         "root": str(root),
+        "platform": sys.platform,
+        "windows_reparse_detection": "implemented" if sys.platform == "win32" else "not_applicable",
         "partial": bool(partial_reasons),
         "partial_reasons": partial_reasons,
         "warnings": warnings,
@@ -227,12 +379,17 @@ def scan_root(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         "scanned_directories": scanned_directories,
         "skipped_links": skipped_links[: args.top],
         "skipped_mounts": skipped_mounts[: args.top],
-        "skipped_hidden": skipped_hidden[: args.top],
+        "skipped_reparse_points": skipped_reparse_points[: args.top],
+        "hidden_skipped_count": hidden_skipped_count,
+        "hidden_skipped_directories_count": hidden_skipped_directories_count,
+        "hidden_skipped_examples": hidden_skipped_examples,
         "access_errors": access_errors[: args.top],
         "largest_files": [asdict(item) | {"size": human_size(item.size_bytes)} for item in largest_files],
         "largest_directories": [asdict(item) | {"size": human_size(item.size_bytes)} for item in largest_directories],
         "extension_counts": dict(sorted(extension_counts.items())),
         "category_counts": dict(sorted(category_counts.items())),
+        "directory_category_counts": dict(sorted(directory_category_counts.items())),
+        "category_size_note": "category_counts includes regular file bytes only; directory_category_counts records directory metadata bytes separately.",
     }
 
 
@@ -244,6 +401,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-depth", type=int, default=8, help="Maximum directory depth to traverse.")
     parser.add_argument("--top", type=int, default=30, help="Number of largest entries to keep.")
     parser.add_argument("--include-hidden", action="store_true", help="Include dotfiles and dotdirectories.")
+    parser.add_argument("--allow-broad-root", action="store_true", help="Allow broad roots after explicit user approval.")
+    parser.add_argument("--allow-home", action="store_true", help="Allow scanning the current user's home/profile root.")
+    parser.add_argument("--allow-drive-root", action="store_true", help="Allow scanning a drive or filesystem root.")
+    parser.add_argument("--allow-mounted-root", action="store_true", help="Allow scanning a mounted volume root.")
+    parser.add_argument("--allow-cloud-sync-root", action="store_true", help="Allow scanning a cloud-sync root.")
+    parser.add_argument("--allow-network-root", action="store_true", help="Allow scanning a network share root.")
+    parser.add_argument("--allow-workspace-root", action="store_true", help="Allow scanning the current workspace root.")
+    parser.add_argument("--allow-symlink-root", action="store_true", help="Allow a symlink or reparse-point scan root.")
     parser.add_argument("--json", action="store_true", help="Emit JSON. Present for explicitness; JSON is always emitted.")
     return parser.parse_args()
 

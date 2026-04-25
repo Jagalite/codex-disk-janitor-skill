@@ -21,6 +21,22 @@ from typing import Any
 
 WRITE_ACTIONS = {"delete", "stage", "trash", "compress"}
 REQUIRED_ITEM_FIELDS = {"id", "path", "type", "size_bytes", "risk", "proposed_action"}
+REQUIRED_APPROVAL_FIELDS = {
+    "requested_scope",
+    "approved_scope",
+    "generated_at",
+    "approval_required",
+    "approved_item_ids",
+    "approval_phrase",
+}
+REQUIRED_COMPRESSION_FIELDS = {
+    "originals_preserved",
+    "archive_output_path",
+    "expected_temp_overhead_bytes",
+    "verification_method",
+    "rollback_plan",
+    "source_kind",
+}
 DANGEROUS_NAMES = {"", ".", ".."}
 TYPE_ALIASES = {
     "dir": "directory",
@@ -65,6 +81,10 @@ def is_root_like(path: Path) -> bool:
     anchor = Path(path.anchor).resolve(strict=False) if path.anchor else None
     home = Path.home().resolve(strict=False)
     return path == anchor or path == home
+
+
+def non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
 def is_mount_point(path: Path) -> bool:
@@ -164,6 +184,84 @@ def estimate_size(path: Path) -> tuple[int | None, list[str], int]:
     return total, warnings, item_count
 
 
+def validate_approval_metadata(plan: dict[str, Any], errors: list[str], warnings: list[str]) -> set[str]:
+    missing = sorted(REQUIRED_APPROVAL_FIELDS - plan.keys())
+    if missing:
+        errors.append(f"Plan missing approval metadata fields: {', '.join(missing)}")
+
+    for field in ("requested_scope", "approved_scope", "generated_at", "approval_phrase"):
+        if field in plan and not non_empty_string(plan[field]):
+            errors.append(f"{field} must be a non-empty string.")
+
+    if plan.get("approval_required") is not True:
+        errors.append("approval_required must be true; validation is not execution permission.")
+
+    approved_item_ids_raw = plan.get("approved_item_ids", [])
+    if not isinstance(approved_item_ids_raw, list) or not approved_item_ids_raw:
+        errors.append("approved_item_ids must be a non-empty list.")
+        approved_item_ids: set[str] = set()
+    else:
+        approved_item_ids = {str(item_id) for item_id in approved_item_ids_raw}
+
+    approval_phrase = str(plan.get("approval_phrase", ""))
+    missing_from_phrase = sorted(item_id for item_id in approved_item_ids if item_id not in approval_phrase)
+    if missing_from_phrase:
+        warnings.append(
+            "approval_phrase does not mention approved item IDs: " + ", ".join(missing_from_phrase)
+        )
+
+    for scope_field in ("requested_scope", "approved_scope"):
+        if scope_field not in plan or not non_empty_string(plan.get(scope_field)):
+            continue
+        try:
+            scope = resolve_path(str(plan[scope_field]))
+        except ValueError as error:
+            errors.append(f"{scope_field} is invalid: {error}")
+            continue
+        if is_root_like(scope):
+            errors.append(f"{scope_field} is too broad: {scope}")
+
+    return approved_item_ids
+
+
+def validate_compression_item(raw_item: dict[str, Any], item_id: str, target: Path, errors: list[str], warnings: list[str]) -> None:
+    missing = sorted(REQUIRED_COMPRESSION_FIELDS - raw_item.keys())
+    if missing:
+        errors.append(f"Compression item {item_id} missing required fields: {', '.join(missing)}")
+        return
+
+    if not isinstance(raw_item["originals_preserved"], bool):
+        errors.append(f"Compression item {item_id} originals_preserved must be a boolean.")
+    if raw_item.get("originals_preserved") is not True:
+        warnings.append(f"Compression item {item_id} does not preserve originals; require explicit high-caution approval.")
+
+    try:
+        overhead = int(raw_item["expected_temp_overhead_bytes"])
+        if overhead < 0:
+            errors.append(f"Compression item {item_id} expected_temp_overhead_bytes must be non-negative.")
+    except (TypeError, ValueError):
+        errors.append(f"Compression item {item_id} expected_temp_overhead_bytes must be an integer.")
+
+    for field in ("verification_method", "rollback_plan", "source_kind"):
+        if not non_empty_string(raw_item.get(field)):
+            errors.append(f"Compression item {item_id} {field} must be a non-empty string.")
+
+    try:
+        archive_output = resolve_path(str(raw_item["archive_output_path"]))
+    except ValueError as error:
+        errors.append(f"Compression item {item_id} archive_output_path is invalid: {error}")
+        return
+
+    if archive_output == target:
+        errors.append(f"Compression item {item_id} archive output matches source path: {archive_output}")
+    if is_root_like(archive_output):
+        errors.append(f"Compression item {item_id} archive output is too broad: {archive_output}")
+
+    source_kind = str(raw_item.get("source_kind", "")).lower()
+    if source_kind in {"app-managed", "user-data", "unknown"}:
+        warnings.append(f"Compression item {item_id} source_kind is {source_kind}; treat as high caution.")
+
+
 def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -174,10 +272,16 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
         errors.append("Plan must include a non-empty items list.")
         return dry_run_result(False, errors, warnings, summaries)
 
+    approved_item_ids = validate_approval_metadata(plan, errors, warnings)
+
     approved_prefixes_raw = plan.get("approved_prefixes", [])
     if not isinstance(approved_prefixes_raw, list):
         errors.append("approved_prefixes must be a list when provided.")
         approved_prefixes_raw = []
+
+    approved_scope = plan.get("approved_scope")
+    if not approved_prefixes_raw and non_empty_string(approved_scope):
+        approved_prefixes_raw = [approved_scope]
 
     approved_prefixes: list[Path] = []
     for raw_prefix in approved_prefixes_raw:
@@ -198,6 +302,7 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
     total_item_count = 0
     allow_symlinks = bool(plan.get("allow_symlinks", False))
     allow_mount_points = bool(plan.get("allow_mount_points", False))
+    write_item_ids: set[str] = set()
 
     for index, raw_item in enumerate(items, start=1):
         if not isinstance(raw_item, dict):
@@ -216,6 +321,9 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
         action = str(raw_item["proposed_action"]).lower()
         if action in WRITE_ACTIONS:
             write_count += 1
+            write_item_ids.add(item_id)
+            if approved_item_ids and item_id not in approved_item_ids:
+                errors.append(f"Item {item_id} is a write action but is not listed in approved_item_ids.")
         else:
             warnings.append(f"Item {item_id} has non-write action {action!r}; it will not be counted as approved cleanup.")
             continue
@@ -246,6 +354,9 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
 
         if found_type is not None and expected_type in {"file", "directory"} and found_type != expected_type:
             errors.append(f"Item {item_id} type changed: expected {expected_type}, found {found_type}")
+
+        if action == "compress":
+            validate_compression_item(raw_item, item_id, target, errors, warnings)
 
         risk = str(raw_item["risk"]).lower()
         if risk in {"high", "unknown"}:
@@ -284,6 +395,10 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 reversible=raw_item.get("reversible"),
             )
         )
+
+    missing_approved_ids = approved_item_ids - write_item_ids
+    if missing_approved_ids:
+        errors.append("approved_item_ids includes IDs with no matching write action: " + ", ".join(sorted(missing_approved_ids)))
 
     expected_count = plan.get("expected_count")
     if expected_count is not None and int(expected_count) != write_count:

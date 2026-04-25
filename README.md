@@ -38,7 +38,7 @@ Use $disk-space-janitor to review my Downloads folder. Start read-only and ask b
 
 For team distribution, package this repository as a Codex plugin or include the root `SKILL.md` and supporting `scripts/` and `references/` files in the plugin bundle.
 
-## Safety Guardrails
+## Safety Model
 
 The skill is designed around these guardrails:
 
@@ -54,6 +54,26 @@ The skill is designed around these guardrails:
 - Results are verified and logged or presented for review.
 
 These guardrails reduce risk, but they do not guarantee that any file is safe to remove.
+
+## Execution Model
+
+This skill does not contain a deletion engine.
+
+The included scripts are read-only helpers:
+
+- `scripts/scan_metadata.py` scans metadata only.
+- `scripts/validate_cleanup_plan.py` validates a cleanup plan and performs a dry-run only.
+
+Actual cleanup actions must be performed separately by Codex after:
+
+1. Exact scope approval.
+2. Metadata scan.
+3. Optional content-inspection approval.
+4. Cleanup draft.
+5. Dry-run.
+6. Explicit final approval.
+
+A successful scan or validation result is never permission to delete, move, compress, stage, trash, or modify anything.
 
 ## Example Usage
 

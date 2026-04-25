@@ -38,6 +38,8 @@ Require explicit consent for each escalation:
 
 Do not assume consent from prior unrelated approval.
 
+Helper scripts are safety aids, not authorization. A successful scan or cleanup-plan validation result never grants permission to delete, move, compress, stage, trash, or modify anything.
+
 ## Dry-Runs
 
 Before any write action, run or present a dry-run. A dry-run should verify:

@@ -41,11 +41,11 @@ User: Prepare a draft to delete only the app-cache folder.
 
 | ID | Path | Type | Size | Risk | Proposed action | Reason | Reversible? | Requires content review? |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1.5 | `/Downloads/app-cache/` | directory | 4.4 GB | Low | Delete after dry-run | User selected exact cache-like folder | No, unless staged/trash first | No |
+| 1.5 | `/Downloads/app-cache/` | directory | 4.4 GB | Low | Move to system trash after dry-run | User selected exact cache-like folder | Usually, until trash is emptied | No |
 
 Approved actions:
 
-- [ ] Delete 1.5 `/Downloads/app-cache/`
+- [ ] Move 1.5 `/Downloads/app-cache/` to system trash
 
 Not touched:
 

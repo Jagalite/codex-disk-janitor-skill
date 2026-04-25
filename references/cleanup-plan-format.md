@@ -57,6 +57,27 @@ When a cleanup plan is represented as JSON, validate it with `scripts/validate_c
 
 Validation is not approval to execute. It only checks whether the final plan still matches the approved exact paths.
 
+Cleanup plan JSON should preserve the approval chain:
+
+```json
+{
+  "requested_scope": "/Downloads",
+  "approved_scope": "/Downloads/app-cache",
+  "generated_at": "2026-04-24T12:00:00Z",
+  "approval_required": true,
+  "approved_item_ids": ["1.1"],
+  "approval_phrase": "Approved to trash ID 1.1 only",
+  "approved_prefixes": ["/Downloads/app-cache"],
+  "expected_count": 1,
+  "expected_total_size_bytes": 6657199308,
+  "items": []
+}
+```
+
+The validator uses this metadata for consistency checks only. It never treats the JSON plan as permission to execute.
+
+Compression is a high-caution write action. Compression items must specify whether originals are preserved, archive output path, expected temporary disk overhead, verification method, rollback plan, and whether the source is app-managed, user data, generated data, cache, build artifact, or unknown.
+
 ## Required Notes
 
 Every cleanup draft should include:

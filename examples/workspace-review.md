@@ -31,15 +31,15 @@ Codex: The lowest-risk candidates are generated build outputs. I will preserve s
 
 | ID | Path | Type | Size | Risk | Proposed action | Reason | Reversible? | Requires content review? |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1.1 | `/workspace/app/target/` | directory | 12.4 GB | Low | Delete after dry-run | Build output | No, unless staged/trash first | No |
-| 1.3 | `/workspace/web/.next/` | directory | 1.6 GB | Low | Delete after dry-run | Generated framework output | No, unless staged/trash first | No |
-| 1.4 | `/workspace/api/dist/` | directory | 890 MB | Low | Delete after dry-run | Build output | No, unless staged/trash first | No |
+| 1.1 | `/workspace/app/target/` | directory | 12.4 GB | Low | Move to system trash after dry-run | Build output | Usually, until trash is emptied | No |
+| 1.3 | `/workspace/web/.next/` | directory | 1.6 GB | Low | Move to system trash after dry-run | Generated framework output | Usually, until trash is emptied | No |
+| 1.4 | `/workspace/api/dist/` | directory | 890 MB | Low | Move to system trash after dry-run | Build output | Usually, until trash is emptied | No |
 
 Approved actions:
 
-- [ ] Delete 1.1 `/workspace/app/target/`
-- [ ] Delete 1.3 `/workspace/web/.next/`
-- [ ] Delete 1.4 `/workspace/api/dist/`
+- [ ] Move 1.1 `/workspace/app/target/` to system trash
+- [ ] Move 1.3 `/workspace/web/.next/` to system trash
+- [ ] Move 1.4 `/workspace/api/dist/` to system trash
 
 Not touched:
 
