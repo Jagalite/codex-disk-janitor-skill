@@ -26,7 +26,7 @@ Permission levels:
 - `home read-only`: Inspect the user's home/profile folder broadly. Ask first because paths and filenames can reveal private information.
 - `drive/root read-only`: Inspect a drive root or multiple system-wide locations for a full-machine inventory. Ask for explicit higher access, keep the scan read-only, avoid following symlinks, and summarize findings instead of dumping long path lists.
 - `protected/system read-only`: Inspect system or admin-sensitive locations only when the user explicitly asks for deeper diagnostics. Prefer OS-native cleanup tools over manual file advice.
-- `write/delete`: Treat as a separate post-report action. Require the user to choose exact targets after Phase 3; prefer reversible moves to Trash/Recycle Bin.
+- `write/delete`: Treat as a separate post-report action. Require the user to choose exact targets after Phase 3; prefer reversible moves to the system trash or a staging folder.
 
 For a full scan, tell the user that broader read access is needed to inspect drive roots, user profiles, app data, caches, and possibly protected/system locations. Make clear that the scan is read-only and that content inspection and deletion remain separate approvals.
 
@@ -78,7 +78,7 @@ Never use the privacy posture to justify automatic deletion or content inspectio
 
 5. Report findings:
    - Lead with the largest low-risk wins.
-   - Clearly mark reports as `complete` or `partial`; explain caps, access-denied paths, skipped symlinks/reparse points, and known-location size limits.
+   - Clearly mark reports as `complete` or `partial`; explain caps, access-denied paths, skipped links, and known-location size limits.
    - Include estimated space, path, why it is probably safe or risky, and the recommended cleanup method.
    - For personal files, recommend review/archive/move instead of deletion.
    - Offer compression with an expiry review date for old but not obviously disposable user files.
@@ -92,9 +92,9 @@ Never use the privacy posture to justify automatic deletion or content inspectio
    - Offer a staging folder for any exact selected item before deletion, and especially recommend it for user-created or ambiguous files.
    - Offer compression as an alternative when it meaningfully saves space and preserves data.
    - For multiple items or mixed-risk actions, copy/adapt `scripts/cleanup_template.py` into `CodexJanitor/<run-id>/cleanup.py` instead of using ad hoc shell commands.
-   - Before write actions, run preflight checks for free space, ACL/read-only issues, symlinks/reparse points, protected children, active files, and expected item counts/sizes.
+   - Before write actions, run preflight checks for free space, access-control/read-only issues, symlinks or special filesystem links, protected children, active files, and expected item counts/sizes.
    - If a write action needs higher filesystem access outside the workspace, explain the reason and request the narrowest permission needed.
-   - Prefer moving user files to Trash/Recycle Bin over permanent deletion.
+   - Prefer reversible cleanup actions over permanent deletion.
    - Log every cleanup action with target path, estimated size, description, method, timestamp, reversibility, and outcome.
    - After write actions, rescan affected targets and reconcile removed, remaining, skipped, and failed items.
    - Never use recursive force deletion on broad or computed paths.
@@ -141,12 +141,6 @@ Do not use subagents for deletion, emptying trash, uninstalling apps, pruning Do
 
 Use read-only discovery commands first after the user approves a scan scope. Prefer top-level summaries before recursive file listings, and avoid printing full filenames/paths until the user asks to inspect exact candidates.
 
-```powershell
-Get-PSDrive -PSProvider FileSystem
-Get-ChildItem -LiteralPath "<approved-folder>" -Directory -Force -ErrorAction SilentlyContinue |
-  Select-Object Name,LastWriteTime
-```
-
 ```bash
 df -h
 du -hd 1 "<approved-folder>" 2>/dev/null | sort -h
@@ -163,15 +157,9 @@ Add `--progress-seconds 5` for scans where progress updates are useful.
 Use `--summary-mode top-level` when the user needs a fast immediate-child folder size summary without listing every file in the final report.
 Use `--format json` when generating a cleanup manifest or planner input; JSON size fields are exact bytes and Markdown human sizes use binary units such as MiB/GiB.
 
-On Windows, use the available Python executable and pass explicit roots:
-
-```powershell
-python .\scripts\space_inventory.py --root "<approved-folder>" --max-depth 4 --top 30 --format markdown
-```
-
 ## Scan Modes And Partial Results
 
-For broad folders such as Downloads, Documents, Projects, AppData, game libraries, and app install folders, prefer starting with:
+For broad folders such as Downloads, Documents, Projects, app data, game libraries, and app install folders, prefer starting with:
 
 ```bash
 python scripts/space_inventory.py --root "<folder>" --summary-mode top-level --top 50 --progress-seconds 10
@@ -183,7 +171,7 @@ Reports must state whether they are partial. Treat a report as partial when any 
 
 - `--max-files`.
 - A per-folder or known-location sizing cap.
-- Access denied, stat failures, read errors, skipped protected areas, symlinks, or reparse points.
+- Access denied, stat failures, read errors, skipped protected areas, symlinks, or special filesystem links.
 - User-selected scope limits that exclude relevant sibling folders.
 
 For full-drive scans or huge folders, provide checkpoint summaries or streaming partial results before the scan completes. A checkpoint should be compact: current phase, elapsed time, root, files/directories scanned, largest directories so far, cap status, and next likely useful root. Do not stream every path.
@@ -200,16 +188,9 @@ When the user asks what has not been used recently, provide a metadata-only view
 
 Do not treat old timestamps as proof that personal files are unimportant.
 
-## Windows App Cleanup
+## App-Managed Cleanup
 
-For Windows app-managed locations, prefer uninstallers, app-native cleanup, or vendor tools before filesystem deletion. This applies especially to:
-
-- `C:\Program Files`, `C:\Program Files (x86)`, and `C:\ProgramData`.
-- Game launchers and game libraries.
-- Docker, WSL, VM folders, Android emulators, BlueStacks, and simulator runtimes.
-- Package managers and app caches with official cleanup commands.
-
-Direct filesystem deletion can reclaim space but may leave registry entries, shortcuts, services, broken uninstall records, and app state corruption. If direct deletion is still considered, require exact paths, app-closed confirmation, staging/trash options where applicable, preflight checks, and a final confirmation.
+For app-managed locations, prefer uninstallers, app-native cleanup, package-manager cleanup, or vendor tools before filesystem deletion. Direct filesystem deletion can reclaim space but may leave app state inconsistent or make later updates, repairs, or uninstalls harder. If direct deletion is still considered, require exact paths, app-closed confirmation, reversible options where applicable, preflight checks, and a final confirmation.
 
 ## Output Pattern
 
@@ -293,11 +274,11 @@ Execution checkpoints must summarize:
 
 Preserve original paths so staged or compressed items can be reviewed, restored, or selectively backed out later.
 
-For every staged, trashed, compressed, or deleted item, record:
+For every staged, moved-to-system-trash, compressed, or deleted item, record:
 
 - Run ID and item ID.
 - Original full path.
-- Current path: staged path, archive path, Trash/Recycle Bin note, or deleted.
+- Current path: staged path, archive path, system-trash note, or deleted.
 - Filename.
 - Size before action and resulting size when available.
 - Action taken and timestamp.
@@ -307,9 +288,9 @@ For every staged, trashed, compressed, or deleted item, record:
 
 For staged files, record enough information to generate a restore script later, including selective restore commands such as `restore 1.3`, `restore 2.1 2.4`, or `restore all`. If the original path now exists, do not overwrite it without explicit user approval.
 
-For compressed files, record whether originals remain, were staged, were moved to Trash/Recycle Bin, or were deleted. Restoration may mean extracting the archive or moving staged originals back.
+For compressed files, record whether originals remain, were staged, were moved to the system trash, or were deleted. Restoration may mean extracting the archive or moving staged originals back.
 
-For Trash/Recycle Bin moves, record the original path and tell the user restoration may need the OS Trash/Recycle Bin UI.
+For system-trash moves, record the original path and tell the user restoration may need the operating system's recovery UI.
 
 For permanent deletion, mark restore as unavailable unless an archive, backup, or staged copy exists.
 
@@ -321,7 +302,7 @@ For more than one file, recursive folders, compression runs, or mixed-risk clean
 CodexJanitor/<run-id>/cleanup.py
 ```
 
-Start from `scripts/cleanup_template.py` when possible. Copy it into the run folder and adapt only the manifest schema or action handling needed for the specific cleanup. The template provides exact-path manifest loading, Windows Recycle Bin behavior, staging, permanent delete, JSONL logging, preflight checks, dry-run, and a self-test mode.
+Start from `scripts/cleanup_template.py` when possible. Copy it into the run folder and adapt only the manifest schema or action handling needed for the specific cleanup. The template provides exact-path manifest loading, reversible move behavior where available, staging, permanent delete, JSONL logging, preflight checks, dry-run, and a self-test mode.
 
 The script must be human-readable:
 
@@ -354,7 +335,7 @@ CodexJanitor/<run-id>/self-test/
 Self-test must exercise the same code path as real cleanup and verify:
 
 - Exact allowlisted fake files and recursive folders are handled.
-- Nested files are staged/trashed/deleted/compressed as expected.
+- Nested files are staged, moved, deleted, or compressed as expected.
 - Missing files are skipped safely.
 - Logs are written.
 - Dry-run changes nothing.
@@ -362,7 +343,7 @@ Self-test must exercise the same code path as real cleanup and verify:
 - Symlinks are skipped or rejected.
 - No path outside `self-test/` is touched.
 
-Prefer staging behavior for self-tests. Do not send self-test files to the real Trash/Recycle Bin unless the user explicitly wants to test Trash integration, because that can leave fake entries in the user's Trash/Recycle Bin.
+Prefer staging behavior for self-tests. Do not send self-test files to the real system trash unless the user explicitly wants to test that integration, because that can leave fake entries in the user's recovery UI.
 
 Measure-twice checks:
 
@@ -375,7 +356,7 @@ Measure-twice checks:
 - Refuse symlink traversal unless the user explicitly approved symlink handling.
 - Refuse cross-volume, cross-share, or network-share moves unless the user explicitly confirmed that cost/risk.
 - Capture drive free space before dry-run, before write, and after verification.
-- Preflight approved targets for read-only attributes, ACL/access errors, protected child folders, active files, symlinks, reparse points, and unexpected child counts.
+- Preflight approved targets for read-only attributes, access-control errors, protected child folders, active files, symlinks or special filesystem links, and unexpected child counts.
 - Offer an optional reversible write-permission probe only after exact targets are approved: create a uniquely named zero-byte sentinel file inside the exact target directory, delete it, and log success/failure. Never run this during metadata-only scans.
 
 Retry and reconciliation rules:
@@ -404,7 +385,7 @@ Compression approval must show:
 - Estimated savings before compression, clearly labeled as an estimate.
 - Archive path.
 - Expiry review date.
-- Whether originals will be kept, staged, moved to Trash/Recycle Bin, or deleted after successful archive verification.
+- Whether originals will be kept, staged, moved to the system trash, or deleted after successful archive verification.
 
 Prefer this safe sequence:
 
@@ -412,8 +393,8 @@ Prefer this safe sequence:
 2. Create the archive.
 3. Verify the archive can be listed or tested with the available archive tool.
 4. Log original paths, archive path, original size, archive size, compression ratio, estimated savings, expiry date, and verification result.
-5. Ask before staging, moving to Trash/Recycle Bin, or deleting originals. If the user is unsure, keep originals.
-6. After originals are staged, moved to Trash/Recycle Bin, or deleted, log the actual space outcome: original size, archive size, real reclaimed space, and any temporary extra space used.
+5. Ask before staging, moving to the system trash, or deleting originals. If the user is unsure, keep originals.
+6. After originals are staged, moved to the system trash, or deleted, log the actual space outcome: original size, archive size, real reclaimed space, and any temporary extra space used.
 
 Space accounting rules:
 
@@ -429,7 +410,7 @@ Expiry rule: an expiry date is a future review trigger, not permission for autom
 
 Offer staging as a safer alternative to deletion for any exact selected file or folder. Strongly recommend staging for personal files, old downloads, archives, duplicate-looking files, old scripts, PDFs/text files, media, and other ambiguous user-created data.
 
-Before deleting or moving selected items to Trash/Recycle Bin, ask whether the user wants staging first. For generated files, caches, and build artifacts, staging is still available but usually less useful than deletion/regeneration or official cleanup commands.
+Before deleting or moving selected items to the system trash, ask whether the user wants staging first. For generated files, caches, and build artifacts, staging is still available but usually less useful than deletion/regeneration or official cleanup commands.
 
 Use this default staging layout:
 
@@ -464,7 +445,7 @@ Staging rules:
 
 ## Cleanup Log
 
-Create or update a cleanup log whenever the user approves deletion, trash moves, cache pruning, uninstall guidance that Codex executes, or any other write cleanup action. Do not log routine read-only scans unless the user asks.
+Create or update a cleanup log whenever the user approves deletion, system-trash moves, cache pruning, uninstall guidance that Codex executes, or any other write cleanup action. Do not log routine read-only scans unless the user asks.
 
 Prefer writing the log inside the current workspace when the cleanup is project-local. For broader computer cleanup, ask where the user wants the log saved; if they do not care, use a clearly named Markdown file such as `disk-cleanup-log-YYYY-MM-DD.md` in the current working directory.
 
@@ -472,7 +453,7 @@ Each log entry must include:
 
 - Timestamp.
 - Run ID and item ID.
-- Action type: moved to Trash/Recycle Bin, staged, compressed, deleted, cache-clean command, app cleanup, skipped, or failed.
+- Action type: moved to system trash, staged, compressed, deleted, cache-clean command, app cleanup, skipped, or failed.
 - Exact original path, staged path, archive path, or command.
 - Estimated size before cleanup.
 - Resulting size when available.
@@ -499,7 +480,7 @@ After cleanup, summarize total estimated reclaimed space and point to the log pa
 Stop and ask before any action that would:
 
 - Permanently delete data.
-- Empty Trash or Recycle Bin.
+- Empty the system trash.
 - Remove application support/config directories.
 - Delete cloud-sync folders or backup directories.
 - Clean package-manager stores, Docker data, VM images, mail stores, photo libraries, or development worktrees.
