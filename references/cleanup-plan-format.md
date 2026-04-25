@@ -18,7 +18,7 @@ Before any write action, produce a final draft:
 
 | ID | Path | Type | Size | Risk | Proposed action | Reason | Reversible? | Requires content review? |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1.1 | `/Downloads/app-cache` | directory | 6.2 GB | Low | Delete after dry-run | Approved cache-like folder | No, unless moved to staging/trash first | No |
+| 1.1 | `/Downloads/app-cache` | directory | 6.2 GB | Low | Move to system trash after dry-run | Approved cache-like folder | Usually, until trash is emptied | No |
 
 ## Approval Block
 
@@ -39,6 +39,23 @@ Dry-run result:
 - estimated bytes: 6.2 GB
 - unexpected paths found: none
 ```
+
+## JSON Plan Validation
+
+When a cleanup plan is represented as JSON, validate it with `scripts/validate_cleanup_plan.py` before any execution step. The validator is read-only and should:
+
+- Reject empty paths.
+- Reject roots and broad parent paths.
+- Reject path traversal outside approved scope.
+- Reject symlinks unless explicitly allowed.
+- Reject mount points unless explicitly allowed.
+- Verify each path still exists.
+- Verify the current type matches the expected type.
+- Estimate current size.
+- Report unexpected expansion.
+- Output a dry-run summary.
+
+Validation is not approval to execute. It only checks whether the final plan still matches the approved exact paths.
 
 ## Required Notes
 

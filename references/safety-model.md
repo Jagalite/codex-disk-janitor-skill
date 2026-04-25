@@ -6,6 +6,8 @@ Disk Space Janitor is designed for cautious disk cleanup. The goal is to help th
 
 Start with read-only inspection. A request to "clean up" or "free space" should be interpreted as permission to investigate and plan, not permission to delete.
 
+If the scope is ambiguous, ask for an exact path or named app/tool scope. Do not scan home roots, drive roots, system roots, cloud-sync roots, mounted volumes, network shares, or broad parent directories unless the user explicitly names that scope.
+
 Read-only work may include:
 
 - Checking disk usage.
@@ -19,6 +21,8 @@ Read-only work may include:
 Use metadata before opening file contents. Metadata includes path, type, size, modified time, access time if available, item counts, and apparent category.
 
 Content inspection can reveal sensitive data. Ask before opening documents, PDFs, source files, logs, exports, images, audio, video, archives, databases, or app state.
+
+Hashing file contents, reading archive manifests, previewing media metadata, extracting EXIF, reading thumbnails, opening logs, parsing documents, and duplicate-content hashing also count as content inspection unless explicitly approved.
 
 ## Explicit Consent
 
@@ -68,6 +72,8 @@ Write or present an audit log for approved write actions. The log should include
 - Outcome.
 - Error or skipped reason.
 - Reversibility notes.
+
+Writing an audit log to disk is also a write action. If local log writing was not approved, present the audit log in chat. If writing locally, use a user-approved destination.
 
 ## Reversible Options First
 

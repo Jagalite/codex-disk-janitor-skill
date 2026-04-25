@@ -36,9 +36,9 @@ For broader cleanup, name the scope explicitly:
 Use $disk-space-janitor to review my Downloads folder. Start read-only and ask before inspecting file contents.
 ```
 
-For team distribution, package this repository as a Codex plugin or include the root `SKILL.md` and supporting `docs/` and `examples/` files in the plugin bundle.
+For team distribution, package this repository as a Codex plugin or include the root `SKILL.md` and supporting `scripts/` and `references/` files in the plugin bundle.
 
-## Safety Guarantees
+## Safety Guardrails
 
 The skill is designed around these guardrails:
 
@@ -100,11 +100,14 @@ Codex: I recorded the reclaimed size and wrote the cleanup log in CodexJanitor/2
 |-- README.md
 |-- SKILL.md
 |-- LICENSE
+|-- scripts/
+|   |-- scan_metadata.py
+|   `-- validate_cleanup_plan.py
 |-- examples/
 |   |-- downloads-review.md
 |   |-- workspace-review.md
 |   `-- docker-cache-review.md
-`-- docs/
+`-- references/
     |-- safety-model.md
     |-- risk-taxonomy.md
     |-- cleanup-plan-format.md
@@ -114,10 +117,12 @@ Codex: I recorded the reclaimed size and wrote the cleanup log in CodexJanitor/2
 ## Documentation
 
 - `SKILL.md`: agent-facing instructions for Codex.
-- `docs/safety-model.md`: safety philosophy and consent model.
-- `docs/risk-taxonomy.md`: risk levels and examples.
-- `docs/cleanup-plan-format.md`: expected cleanup draft format.
-- `docs/os-notes.md`: platform-specific cautions.
+- `scripts/scan_metadata.py`: deterministic read-only metadata scanner.
+- `scripts/validate_cleanup_plan.py`: cleanup plan structure and path validator.
+- `references/safety-model.md`: safety philosophy and consent model.
+- `references/risk-taxonomy.md`: risk levels and examples.
+- `references/cleanup-plan-format.md`: expected cleanup draft format.
+- `references/os-notes.md`: platform-specific cautions.
 - `examples/`: realistic safe workflows.
 
 ## Disclaimer
