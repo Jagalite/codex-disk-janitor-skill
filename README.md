@@ -36,8 +36,6 @@ The skill is intentionally conservative:
 
 ## Privacy
 
-Do not commit scan reports, cleanup logs, local paths, filenames, app names, game titles, media names, or other personal machine details.
-
 The skill defaults to a high-sensitivity privacy posture. It should not infer whether a machine is personal, work, school, shared, or managed from installed apps, games, filenames, folder names, browser profiles, or media. If that context would materially improve safety or recommendations, Codex should ask the user directly and use the answer only to adjust caution.
 
 ## Disclaimer
