@@ -1,4 +1,0 @@
-interface:
-  display_name: "Disk Space Janitor"
-  short_description: "Find safe ways to reclaim disk space"
-  default_prompt: "Use $disk-space-janitor to find low-risk cleanup opportunities on my computer."

@@ -1,16 +1,26 @@
-# Disk Space Janitor Skill
+# Disk Space Janitor
 
-A Codex skill for safely finding disk-space cleanup opportunities.
+Disk Space Janitor is a conservative Codex skill for auditing disk usage, identifying cleanup candidates, and producing reviewable cleanup plans before any write action.
 
-The skill focuses on identification, triage, review, and auditable cleanup planning. It does not encourage blind deletion. The default flow is to find cleanup candidates, explain the tradeoffs, and ask the user before any write action.
+It exists because disk cleanup is easy to get wrong. Large files are not automatically disposable, old files are not automatically unimportant, and app data can be fragile. This skill helps Codex slow down, inspect metadata first, classify risk, and ask for explicit approval before changing anything.
 
 ## What It Does
 
-- Finds large files, stale downloads, caches, build artifacts, and other likely cleanup opportunities.
-- Starts with metadata before inspecting file contents.
-- Labels cleanup candidates by risk.
-- Offers review, staging, compression, or deletion planning depending on what the user wants.
-- Keeps cleanup decisions explicit and auditable.
+- Audits disk usage in a user-approved scope.
+- Starts with metadata such as path, size, type, and modified time.
+- Groups likely cleanup candidates by risk.
+- Asks before inspecting file contents.
+- Produces reviewable cleanup drafts with exact paths.
+- Uses dry-runs before any approved write action.
+- Records what happened for auditability.
+
+## What It Will Not Do
+
+- It will not delete, move, compress, truncate, rewrite, or modify files by default.
+- It will not inspect file contents without approval.
+- It will not treat old or large files as safe to remove on that basis alone.
+- It will not follow links, mounted paths, cloud-sync folders, Docker mounts, or app-managed storage casually.
+- It will not hide destructive actions inside prose.
 
 ## Use With Codex
 
@@ -20,21 +30,32 @@ In a Codex environment where the skill is available, invoke it with:
 Use $disk-space-janitor to inspect this workspace for cleanup opportunities. Do not delete anything.
 ```
 
-For team distribution, package this workflow as a Codex plugin that includes the skill.
+For broader cleanup, name the scope explicitly:
 
-## Safety Model
+```text
+Use $disk-space-janitor to review my Downloads folder. Start read-only and ask before inspecting file contents.
+```
 
-The skill is intentionally conservative:
+For team distribution, package this repository as a Codex plugin or include the root `SKILL.md` and supporting `docs/` and `examples/` files in the plugin bundle.
 
-- Metadata scan first.
-- Content inspection only after approval.
-- Exact filenames and full paths before cleanup.
-- Interactive cleanup draft before execution.
-- Reversible options are preferred before permanent deletion.
-- Final write actions require confirmation.
-- Logs preserve cleanup decisions for review.
+## Safety Guarantees
 
-## Example Workflow
+The skill is designed around these guardrails:
+
+- Read-only inspection is the default.
+- Metadata comes before content inspection.
+- Content review requires user approval.
+- Cleanup candidates are risk-classified.
+- Exact paths are shown before write actions.
+- Cleanup drafts are explicit and editable.
+- Dry-runs happen before execution.
+- Reversible options are preferred over permanent deletion.
+- Final write actions require explicit approval.
+- Results are verified and logged or presented for review.
+
+These guardrails reduce risk, but they do not guarantee that any file is safe to remove.
+
+## Example Usage
 
 ```text
 User: Use $disk-space-janitor to inspect my Downloads folder. Do not delete anything.
@@ -52,29 +73,52 @@ User: Inspect the PDFs and text files, but leave media alone.
 
 Codex: After content-aware review, I recommend:
 - Low risk: 6.2 GB app-cache folder, likely disposable
-- Medium risk: 18.4 GB old installers, good staging candidates
-- Medium risk: 9.7 GB archived exports, good compression candidates
+- Medium risk: 18.4 GB old installers, review before deletion
+- Medium risk: 9.7 GB archived exports, review or archive
 - High risk: 3.4 GB PDFs and text files, keep or review manually
 - Not reviewed: 5.1 GB media exports
 
 User: Delete the 6.2 GB app-cache folder. Do not touch anything else.
 
-Codex: Final draft:
+Codex: Final cleanup draft:
 - Delete /Downloads/app-cache, estimated 6.2 GB
 - Leave installers, exports, PDFs, text files, and media unchanged
-- Generate a cleanup script with exact-path checks, item counts, size checks, and a dry-run first
+- Run a dry-run with exact-path, item-count, and size checks before execution
 
 Codex: Dry-run complete. The script matched 1 approved folder under the allowed path, measured 6.2 GB, and found no unexpected paths.
 
 User: Approved. Run the delete.
 
-Codex: Delete complete. The script removed only the approved app-cache folder and verified the folder is gone.
+Codex: Delete complete. The approved app-cache folder was removed and the result was verified.
 Codex: I recorded the reclaimed size and wrote the cleanup log in CodexJanitor/2026-04-24-downloads-review/.
 ```
 
-## Privacy
+## Repo Layout
 
-The skill defaults to a high-sensitivity privacy posture. It should not infer whether a machine is personal, work, school, shared, or managed from installed apps, games, filenames, folder names, browser profiles, or media. If that context would materially improve safety or recommendations, Codex should ask the user directly and use the answer only to adjust caution.
+```text
+.
+|-- README.md
+|-- SKILL.md
+|-- LICENSE
+|-- examples/
+|   |-- downloads-review.md
+|   |-- workspace-review.md
+|   `-- docker-cache-review.md
+`-- docs/
+    |-- safety-model.md
+    |-- risk-taxonomy.md
+    |-- cleanup-plan-format.md
+    `-- os-notes.md
+```
+
+## Documentation
+
+- `SKILL.md`: agent-facing instructions for Codex.
+- `docs/safety-model.md`: safety philosophy and consent model.
+- `docs/risk-taxonomy.md`: risk levels and examples.
+- `docs/cleanup-plan-format.md`: expected cleanup draft format.
+- `docs/os-notes.md`: platform-specific cautions.
+- `examples/`: realistic safe workflows.
 
 ## Disclaimer
 
